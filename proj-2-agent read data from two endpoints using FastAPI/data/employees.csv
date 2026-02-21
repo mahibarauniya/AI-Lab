@@ -1,0 +1,16 @@
+id,name,department,role,salary,location,email
+1,Alice Johnson,Engineering,Software Engineer,95000,New York,alice.johnson@example.com
+2,Bob Smith,Engineering,Senior Engineer,115000,San Francisco,bob.smith@example.com
+3,Carol White,Marketing,Marketing Manager,85000,Chicago,carol.white@example.com
+4,David Brown,Engineering,DevOps Engineer,105000,Austin,david.brown@example.com
+5,Eva Martinez,HR,HR Specialist,72000,New York,eva.martinez@example.com
+6,Frank Lee,Marketing,Content Strategist,68000,Remote,frank.lee@example.com
+7,Grace Kim,Engineering,Data Scientist,110000,San Francisco,grace.kim@example.com
+8,Henry Davis,Finance,Financial Analyst,88000,Chicago,henry.davis@example.com
+9,Irene Wilson,Engineering,QA Engineer,80000,Austin,irene.wilson@example.com
+10,James Taylor,HR,Recruiter,65000,Remote,james.taylor@example.com
+11,Karen Anderson,Finance,Accountant,78000,New York,karen.anderson@example.com
+12,Leo Thomas,Marketing,SEO Specialist,70000,Remote,leo.thomas@example.com
+13,Mia Jackson,Engineering,Backend Developer,99000,San Francisco,mia.jackson@example.com
+14,Noah Harris,Finance,CFO,145000,Chicago,noah.harris@example.com
+15,Olivia Martin,Engineering,Frontend Developer,93000,New York,olivia.martin@example.com
