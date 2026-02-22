@@ -3,44 +3,46 @@
 ## Overview
 
 This project is a **Currency and Country Analysis Agent** built using:
-- **Python + FastAPI** as the MCP (Model Context Protocol) server
-- **OpenAI LLM** as the reasoning/decision layer
-- **Two local CSV files** as local data sources
-- **One public Exchange Rates API** as the live data source
+- **Claude (Anthropic)** as the reasoning/decision layer
+- **Direct tool integration** (no separate MCP server required in basic flow)
+- **Local CSV files** as data sources (via FastAPI endpoints)
+- **Live Exchange Rates API** (open.er-api.com) for real-time currency data
+- **CSV output format** for saving results
 
 ---
 
 ## Project Structure
 
 ```
-currency-agent/
+proj-2-agentGenerateOutputfromPrompt/
 │
-├── .env                              # Config: file paths, API URL, LLM key
-├── requirements.txt                  # Python dependencies
+├── .env                              # Config: API keys (in donotcheckin-personalkeyinfo/)
+├── main.py                           # Entry point - loads tools, runs agent, saves CSV
+├── test_main.py                      # Test file for the application
 │
 ├── data/
 │   ├── countries.csv                 # country_code, country_name
 │   └── country_currency.csv          # country_name, currency_name, currency_code
 │
-├── models/
-│   └── schemas.py                    # Pydantic schemas for all 3 tools
-│
 ├── tools/
 │   ├── country_tool.py               # Reads countries.csv
-│   ├── currency_tool.py              # Reads country_currency.csv
-│   └── exchange_rate_tool.py         # Calls Exchange Rates API
-│
-├── mcp_server/
-│   └── server.py                     # FastAPI MCP server — exposes all 3 tools
+│   ├── country_currency_tool.py      # Reads country_currency.csv from FastAPI
+│   └── currency_rates_tool.py        # Calls live Exchange Rates API
 │
 ├── agent/
-│   ├── prompts.py                    # System prompt for LLM
-│   ├── tool_definitions.py           # Tool JSON schemas for LLM
-│   └── agent.py                      # LLM agentic loop
+│   └── agent.py                      # Claude LLM agentic loop with tool execution
 │
-├── output/                           # Generated reports land here
+├── api/
+│   ├── countries.py                  # FastAPI endpoint for countries (port 5001)
+│   ├── country_currency.py           # FastAPI endpoint for country-currency (port 5003)
+│   └── __init__.py
 │
-└── main.py                           # Entry point
+├── mcp_server/
+│   └── server.py                     # MCP server (optional - alternative architecture)
+│
+├── output/                           # Generated CSV reports land here
+│
+└── PROJECT_FLOW.md                   # This file
 ```
 
 ---
@@ -51,9 +53,9 @@ currency-agent/
 |---|---|---|
 | Country Data | Local CSV | `data/countries.csv` |
 | Currency Data | Local CSV | `data/country_currency.csv` |
-| Exchange Rates | Public API | `https://open.er-api.com/v6/latest/{currency_code}` |
+| Exchange Rates | Live API | `https://open.er-api.com/v6/latest/USD` |
 
-### How the 3 Sources Interlink
+### How the Data Sources Interlink
 
 ```
 countries.csv                    country_currency.csv
@@ -63,95 +65,82 @@ country_name  ──────────────────→country_n
                                  currency_name
                                  currency_code ──→  Exchange Rates API
                                                          ↓
-                                               GET /latest?base={currency_code}
-                                               returns live exchange rates
+                                               GET /v6/latest/USD
+                                               returns live exchange rates (INR: 90.97147, etc.)
 ```
 
 **Linking Keys:**
 - `countries.country_name` → `country_currency.country_name`
-- `country_currency.currency_code` → Exchange Rates API base currency
+- `country_currency.currency_code` → Exchange Rates API currency code (e.g., INR, EUR, JPY)
 
 ---
 
-## Bird's Eye Architecture
+## Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        USER INPUT                               │
-│   "Get all Euro countries with live EUR vs USD rate and         │
-│    save to ./output/euro_report.json"                           │
+│   "What is the exchange rate for India?"                        │
 └─────────────────────────────┬───────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                        main.py                                  │
-│   - Loads .env                                                  │
-│   - Takes user input                                            │
-│   - Calls run_agent(user_input)                                 │
-│   - Receives final result                                       │
-│   - Writes result to output path                                │
+│   1. Load .env configuration (API keys)                         │
+│   2. Create LLM client (Claude)                                 │
+│   3. Initialize tool instances:                                 │
+│      - CurrencyRatesTool()                                      │
+│      - CountryCurrencyTool()                                    │
+│   4. Define tools schema for Claude                             │
+│   5. Define tool_handler function                               │
+│   6. Call run_agent_conversation()                              │
+│   7. Parse and save result to CSV                               │
 └─────────────────────────────┬───────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                     agent/agent.py                              │
-│   - Builds message: [system_prompt + user_prompt]               │
-│   - Sends to LLM with tool_definitions                          │
-│   - Runs agentic loop until final answer                        │
+│                  agent/agent.py                                 │
+│  run_agent_conversation(llm_client, model, tools, message,      │
+│                         tool_handler)                           │
+│                                                                 │
+│  Agentic Loop:                                                  │
+│  1. Send user message to Claude with tools schema               │
+│  2. Claude responds with tool_use or final answer               │
+│  3. If tool_use: call tool_handler, append result to messages   │
+│  4. Loop until Claude gives final text answer                   │
+│  5. Return natural language response                            │
 └──────────┬──────────────────────────────────────┬───────────────┘
            │                                      │
+           │ Claude requests tools                │ Results returned
            ▼                                      ▼
-┌──────────────────────┐              ┌───────────────────────────┐
-│   agent/prompts.py   │              │  agent/tool_definitions.py│
-│   System prompt      │              │  Tool JSON schemas        │
-│   Decision rules     │              │  LLM uses these to decide │
-│   Output format      │              │  what & how to call tools │
-└──────────────────────┘              └───────────────────────────┘
-           │
-           │  LLM decides which tool to call
-           ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                   mcp_server/server.py                          │
-│   POST /tool  { "tool": "get_country_data", "arguments": {} }   │
-│   - Receives tool call from agent                               │
-│   - Looks up TOOL_REGISTRY                                      │
-│   - Routes to correct tool handler                              │
-└───────┬─────────────────┬──────────────────────┬───────────────┘
-        │                 │                      │
-        ▼                 ▼                      ▼
-┌──────────────┐  ┌───────────────┐  ┌──────────────────────────┐
-│country_tool  │  │currency_tool  │  │  exchange_rate_tool       │
-│.py           │  │.py            │  │  .py                      │
-│Reads         │  │Reads          │  │  Calls live public API    │
-│countries.csv │  │country_       │  │  open.er-api.com/v6/      │
-│              │  │currency.csv   │  │  latest/{currency_code}   │
-└──────┬───────┘  └───────┬───────┘  └────────────┬─────────────┘
-       │                  │                        │
-       ▼                  ▼                        ▼
-┌──────────────┐  ┌───────────────┐  ┌──────────────────────────┐
-│countries.csv │  │country_       │  │  Live Exchange Rate Data  │
-│(local file)  │  │currency.csv   │  │  (public internet)        │
-│              │  │(local file)   │  │                           │
-└──────────────┘  └───────────────┘  └──────────────────────────┘
-        │                  │                        │
-        └─────���────────────┴────────────────────────┘
-                           │
-                           │  Tool results returned to agent
-                           ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     agent/agent.py                              │
-│   - Appends tool result to messages                             │
-│   - Sends updated messages back to LLM                          │
-│   - LLM decides: call more tools OR produce final answer        │
-└─────────────────────────────┬───────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                        main.py                                  │
-│   - Receives final JSON result from agent                       │
-│   - Checks for "output_path" in result                          │
-│   - Writes report to ./output/euro_report.json                  │
-└─────────────────────────────────────────────────────────────────┘
+│              tool_handler (defined in main.py)                  │
+│                                                                 │
+│  Routes tool calls:                                             │
+│  - get_currency_by_country  → CountryCurrencyTool               │
+│  - get_exchange_rate        → CurrencyRatesTool                 │
+│                                                                 │
+│  Executes tool and returns result string to agent               │
+└───────┬─────────────────────────────┬───────────────────────────┘
+        │                             │
+        ▼                             ▼
+┌────────────────────────┐   ┌─────────────────────────┐
+│ CountryCurrencyTool    │   │ CurrencyRatesTool       │
+│                        │   │                         │
+│ - get_by_country_name()│   │ - get_rate(code)        │
+│                        │   │                         │
+│ Calls:                 │   │ Calls:                  │
+│ http://localhost:5003  │   │ https://open.er-api.com │
+│ (FastAPI endpoint)     │   │ (Live public API)       │
+└────────────────────────┘   └─────────────────────────┘
+        │                             │
+        ▼                             ▼
+┌────────────────────────┐   ┌─────────────────────────┐
+│ country_currency.csv   │   │ Live Exchange Rates     │
+│ (via FastAPI)          │   │ INR: 90.97147           │
+│                        │   │ EUR: 0.93...            │
+└────────────────────────┘   │ JPY: 149.5...           │
+                             └─────────────────────────┘
 ```
 
 ---
@@ -164,62 +153,113 @@ country_name  ──────────────────→country_n
 python main.py
 ```
 
-```
+**What happens:**
+
+```python
 main.py
   │
-  ├── load_dotenv()          ← loads .env (API keys, file paths, URLs)
+  ├── setup_environment()       # Loads .env from donotcheckin-personalkeyinfo/
+  ├── load_config()             # Gets LLM_API_KEY and MODEL
+  ├── create_llm_client()       # Creates Anthropic client
   ├── print welcome message
-  ├── input("Your query: ")  ← waits for user to type
-  └── calls run_agent(user_input)
+  ├── input("Your question: ")  # Waits for user input
+  └── calls run_agent(user_input, llm_client, model)
 ```
-
-> Nothing has called the LLM or any API yet. Just environment loaded and input captured.
 
 ---
 
-### STEP 2 — Agent Builds the First LLM Message
+### STEP 2 — Agent Initializes Tools
 
-```
-agent/agent.py → run_agent()
+```python
+run_agent(user_input, llm_client, model):
   │
-  ├── Builds messages list:
+  ├── Initialize tool instances:
+  │     currency_rates_tool = CurrencyRatesTool()
+  │     country_currency_tool = CountryCurrencyTool()
+  │
+  ├── Define tools schema (2 tools):
   │     [
-  │       { role: "system", content: SYSTEM_PROMPT },  ← from prompts.py
-  │       { role: "user",   content: user_input }
+  │       {
+  │         "name": "get_currency_by_country",
+  │         "description": "Get the official currency...",
+  │         "input_schema": {...}
+  │       },
+  │       {
+  │         "name": "get_exchange_rate",
+  │         "description": "Get the current live exchange rate...",
+  │         "input_schema": {...}
+  │       }
   │     ]
   │
-  └── Sends to LLM with TOOL_DEFINITIONS attached       ← from tool_definitions.py
+  └── Define tool_handler(tool_name, tool_input) function
 ```
-
-**What goes to LLM:**
-- `SYSTEM_PROMPT` — tells LLM what tools exist, decision rules, output format.
-- `TOOL_DEFINITIONS` — JSON schemas so LLM knows exact argument names and types.
-- User's natural language query.
 
 ---
 
-### STEP 3 — LLM Reasons and Decides Which Tool to Call First
+### STEP 3 — Call Agent Conversation Loop
 
-The LLM reads the prompt and thinks:
+```python
+result = run_agent_conversation(
+    llm_client, 
+    model, 
+    tools,           # 2 tool schemas
+    user_input,      # "What is the exchange rate for India?"
+    tool_handler     # Function to execute tools
+)
+```
+
+---
+
+### STEP 4 — Agent Sends First Message to Claude
+
+```python
+agent/agent.py → run_agent_conversation()
+  │
+  ├── Build messages list:
+  │     messages = [
+  │       {
+  │         "role": "user",
+  │         "content": "What is the exchange rate for India?"
+  │       }
+  │     ]
+  │
+  ├── Build system prompt (embedded in agent.py):
+  │     "You are a helpful AI assistant with access to ONLY 2 tools:
+  │      1. get_currency_by_country
+  │      2. get_exchange_rate"
+  │
+  └── Send to Claude:
+        response = llm_client.messages.create(
+            model=model,
+            max_tokens=4096,
+            system=system_prompt,
+            tools=tools,              # Tool schemas
+            messages=messages
+        )
+```
+
+---
+
+### STEP 5 — Claude Decides to Use Tools
+
+Claude receives the message and thinks:
 
 ```
-User asked about "Euro countries"
-  → I need currency data first to find all Euro countries
-  → Call get_currency_data with currency_name = "Euro"
-  → Then get exchange rates using currency_code = "EUR"
+User asked: "What is the exchange rate for India?"
+  → I need to find India's currency first
+  → Call: get_currency_by_country(country="India")
 ```
 
-LLM responds with a **tool call** (not a text answer yet):
+Claude responds with `stop_reason == "tool_use"` and a tool call:
 
 ```json
 {
-  "tool_calls": [
+  "content": [
     {
-      "id": "call_abc123",
-      "function": {
-        "name": "get_currency_data",
-        "arguments": "{ \"currency_name\": \"Euro\" }"
-      }
+      "type": "tool_use",
+      "id": "toolu_abc123",
+      "name": "get_currency_by_country",
+      "input": {"country": "India"}
     }
   ]
 }
@@ -227,89 +267,78 @@ LLM responds with a **tool call** (not a text answer yet):
 
 ---
 
-### STEP 4 — Agent Forwards Tool Call to MCP Server
+### STEP 6 — Agent Executes Tool via Handler
 
-```
-agent/agent.py
+```python
+agent/agent.py detects tool_use:
   │
-  └── sees message.tool_calls is not empty
-        │
-        ├── tool_name = "get_currency_data"
-        ├── tool_args = { "currency_name": "Euro" }
-        │
-        └── calls call_mcp_tool("get_currency_data", { "currency_name": "Euro" })
-              │
-              └── POST http://localhost:8000/tool
-                    body: {
-                      "tool": "get_currency_data",
-                      "arguments": { "currency_name": "Euro" }
-                    }
+  ├── Extract: tool_name = "get_currency_by_country"
+  ├── Extract: tool_input = {"country": "India"}
+  │
+  └── Call: result = tool_handler("get_currency_by_country", {"country": "India"})
+```
+
+```python
+tool_handler in main.py:
+  │
+  ├── if tool_name == "get_currency_by_country":
+  │     result = country_currency_tool.get_by_country_name("India")
+  │     # Returns: {"currency_name": "Indian Rupee", "currency_code": "INR"}
+  │     
+  │     return "The currency of India is Indian Rupee (INR)."
+```
+
+**CountryCurrencyTool** calls FastAPI endpoint:
+```python
+GET http://localhost:5003/?country_name=India
+  → Reads country_currency.csv
+  → Returns: {"currency_name": "Indian Rupee", "currency_code": "INR"}
 ```
 
 ---
 
-### STEP 5 — MCP Server Routes to Correct Tool Handler
+### STEP 7 — Tool Result Sent Back to Claude
 
-```
-mcp_server/server.py → call_tool()
+```python
+agent/agent.py:
   │
-  ├── receives request.tool = "get_currency_data"
-  ├── looks up TOOL_REGISTRY["get_currency_data"]
-  └── calls currency_tool.get_currency_data({ "currency_name": "Euro" })
-```
-
-```
-tools/currency_tool.py → get_currency_data()
-  │
-  ├── reads country_currency.csv via pandas
-  ├── filters rows where currency_name contains "Euro"
-  └── returns:
-        {
-          "currencies": [
-            { "country_name": "Germany",  "currency_name": "Euro", "currency_code": "EUR" },
-            { "country_name": "France",   "currency_name": "Euro", "currency_code": "EUR" }
-          ]
-        }
-```
-
----
-
-### STEP 6 — Tool Result Sent Back to Agent → Agent Sends to LLM
-
-```
-agent/agent.py
-  │
-  ├── receives tool result from MCP
-  ├── appends to messages:
+  ├── Append tool result to messages:
   │     {
-  │       role: "tool",
-  │       tool_call_id: "call_abc123",
-  │       content: "{ currencies: [...] }"
+  │       "type": "tool_result",
+  │       "tool_use_id": "toolu_abc123",
+  │       "content": "The currency of India is Indian Rupee (INR)."
   │     }
   │
-  └── sends updated messages back to LLM
-        (now LLM has: system + user + tool_call + tool_result)
+  ├── Append to conversation:
+  │     messages.append({
+  │       "role": "user",
+  │       "content": [tool_result]
+  │     })
+  │
+  └── Send back to Claude for next decision
 ```
 
 ---
 
-### STEP 7 — LLM Decides Next Tool Call
+### STEP 8 — Claude Calls Second Tool
 
-LLM now knows:
-- Euro countries are: Germany, France (etc.)
-- Currency code is: `EUR`
+Claude now knows India's currency is INR. It decides:
 
-LLM decides next step:
+```
+Now I know the currency code is INR
+  → Call: get_exchange_rate(currency="INR")
+```
+
+Response:
 
 ```json
 {
-  "tool_calls": [
+  "content": [
     {
-      "id": "call_def456",
-      "function": {
-        "name": "get_exchange_rates",
-        "arguments": "{\"base_currency_code\": \"EUR\", \"target_currency_codes\": [\"USD\"]}"
-      }
+      "type": "tool_use",
+      "id": "toolu_def456",
+      "name": "get_exchange_rate",
+      "input": {"currency": "INR"}
     }
   ]
 }
@@ -317,107 +346,98 @@ LLM decides next step:
 
 ---
 
-### STEP 8 — MCP Routes to Exchange Rate Tool
+### STEP 9 — Agent Calls Exchange Rate Tool
 
-```
-mcp_server/server.py
+```python
+tool_handler("get_exchange_rate", {"currency": "INR"}):
   │
-  └── TOOL_REGISTRY["get_exchange_rates"]
+  └── result = currency_rates_tool.get_rate("INR")
         │
-        └── tools/exchange_rate_tool.py → get_exchange_rates()
+        └── GET https://open.er-api.com/v6/latest/USD
               │
-              ├── calls GET https://open.er-api.com/v6/latest/EUR
-              ├── filters to only USD rate
-              └── returns:
-                    {
-                      "base_code": "EUR",
-                      "rates": { "USD": 1.08 }
-                    }
+              └── Returns: {
+                    "currency": "INR",
+                    "rate": 90.97147,
+                    "base": "USD",
+                    "timestamp": "Sat, 22 Feb 2026 00:00:01 +0000"
+                  }
+      
+      return "The current exchange rate for INR (Indian Rupee) is 1 USD = 90.97147 INR."
 ```
 
 ---
 
-### STEP 9 — LLM Gets All Data and Produces Final Answer
+### STEP 10 — Claude Produces Final Answer
 
-Agent appends exchange rate result to messages and calls LLM one last time.
+Agent sends tool result back to Claude. Claude now has all the info:
+- Country: India
+- Currency: INR (Indian Rupee)
+- Exchange rate: 1 USD = 90.97147 INR
 
-LLM now has everything:
-- Euro countries list (from currency tool)
-- Live EUR → USD rate (from exchange rate tool)
+Claude produces **final text response** (not a tool call):
 
-LLM produces **final JSON answer**:
-
-```json
-{
-  "output_path": "./output/euro_report.json",
-  "report": {
-    "base_currency": "EUR",
-    "exchange_rate_vs_USD": 1.08,
-    "euro_countries": [
-      {
-        "country_name": "Germany",
-        "currency_name": "Euro",
-        "currency_code": "EUR",
-        "exchange_rate_to_USD": 1.08
-      },
-      {
-        "country_name": "France",
-        "currency_name": "Euro",
-        "currency_code": "EUR",
-        "exchange_rate_to_USD": 1.08
-      }
-    ],
-    "summary": "There are 2 Euro countries in the dataset. Current EUR to USD rate is 1.08."
-  }
-}
 ```
+"The current exchange rate for the Indian Rupee (INR) is **1 USD = 90.97 INR**.
+This means that 1 US Dollar can be exchanged for approximately 90.97 Indian Rupees 
+at the current market rate."
+```
+
+`stop_reason == "end_turn"` → Loop ends
 
 ---
 
-### STEP 10 — `main.py` Writes Output to File
+### STEP 11 — `main.py` Parses and Saves Result
 
-```
-main.py
+```python
+main.py:
   │
-  ├── receives final result dict from run_agent()
-  ├── reads result["output_path"] = "./output/euro_report.json"
-  ├── creates ./output/ folder if not exists
-  ├── writes result["report"] to ./output/euro_report.json
-  └── prints ✅ Output written to: /your/project/output/euro_report.json
+  ├── result = run_agent() 
+  │     # Returns Claude's final text answer
+  │
+  ├── parse_result(user_input, result)
+  │     # Uses regex to extract:
+  │     # - country: "India"
+  │     # - currency_code: "INR"
+  │     # - currency_name: "Rupee"
+  │     # - exchange_rate: "90.97"
+  │
+  ├── save_result_to_file(user_input, parsed_data)
+  │     # Creates: output/india_exchange_rate_20260222_003841.csv
+  │     # Content:
+  │     #   timestamp,question,country,currency_code,currency_name,exchange_rate,base_currency
+  │     #   2026-02-22 00:38:41,India exchange rate,India,INR,Rupee,90.97,USD
+  │
+  └── print("✓ Result saved to: ...")
 ```
 
 ---
 
-## Full Message Timeline Inside the Agent Loop
+## Complete Message Timeline (Agent Loop)
 
 ```
 Round 1:
-  SEND  →  [system, user]
-  RECV  ←  tool_call: get_currency_data({ currency_name: "Euro" })
+  SEND  →  [user: "What is the exchange rate for India?"]
+  RECV  ←  tool_use: get_currency_by_country(country="India")
 
 Round 2:
-  SEND  →  [system, user, assistant(tool_call), tool(currency result)]
-  RECV  ←  tool_call: get_exchange_rates({ base: "EUR", targets: ["USD"] })
+  SEND  →  [user, assistant(tool_use), user(tool_result: "...Indian Rupee (INR)")]
+  RECV  ←  tool_use: get_exchange_rate(currency="INR")
 
 Round 3:
-  SEND  →  [system, user, assistant(tool_call), tool(currency),
-            assistant(tool_call), tool(exchange rate result)]
-  RECV  ←  Final JSON answer  ← NO more tool_calls, loop ends
+  SEND  →  [user, assistant(tool_use), user(tool_result), 
+            assistant(tool_use), user(tool_result: "...90.97147 INR")]
+  RECV  ←  Final text answer: "The current exchange rate for the Indian Rupee..."
+           stop_reason: "end_turn" → Loop ends
 ```
 
 ---
 
-## Data Linking Flow
+## Tools Available
 
-```
-countries.csv                    country_currency.csv
-──────────────────               ──────────────────────────────────
-country_code: "DE"               country_name: "Germany"
-country_name: "Germany"  ──────→ currency_name: "Euro"
-                                 currency_code: "EUR"  ──────────→ Exchange Rates API
-                                                                   GET /latest/EUR
-                                                                   returns: { USD: 1.08 }
-```
+| Tool Name | Description | Input | Output |
+|---|---|---|---|
+| `get_currency_by_country` | Get currency for a country | `country` (string) | Currency name and code |
+| `get_exchange_rate` | Get live exchange rate | `currency` (string) | Rate vs USD from live API |
 
 ---
 
@@ -425,77 +445,123 @@ country_name: "Germany"  ──────→ currency_name: "Euro"
 
 | File | Role |
 |---|---|
-| `.env` | Stores all URLs, keys, paths (never hardcoded) |
-| `requirements.txt` | All pip packages needed |
+| `.env` | Stores API keys (LLM_API_KEY, LLM_MODEL) in donotcheckin-personalkeyinfo/ |
+| `main.py` | Entry point: loads tools, runs agent, parses result, saves CSV |
+| `agent/agent.py` | Claude agentic loop: sends messages, handles tool calls, returns answer |
+| `tools/currency_rates_tool.py` | Calls live API (open.er-api.com) for exchange rates |
+| `tools/country_currency_tool.py` | Calls FastAPI endpoint (localhost:5003) for currency data |
 | `data/countries.csv` | Master list of countries + codes |
 | `data/country_currency.csv` | Maps country → currency name + code |
-| `models/schemas.py` | Pydantic contracts (input/output shapes for all 3 tools) |
-| `tools/country_tool.py` | Reads countries.csv, filters, returns country records |
-| `tools/currency_tool.py` | Reads country_currency.csv, filters, returns currency records |
-| `tools/exchange_rate_tool.py` | Calls live API, returns exchange rates |
-| `mcp_server/server.py` | FastAPI app, single /tool endpoint, routes to correct tool |
-| `agent/prompts.py` | Tells LLM what tools exist + decision rules + output format |
-| `agent/tool_definitions.py` | JSON schemas so LLM knows exact argument names + types |
-| `agent/agent.py` | LLM loop: sends messages, handles tool calls, gets final answer |
-| `main.py` | Entry point: takes input, runs agent, writes output file |
-| `output/` | All generated reports land here |
+| `api/country_currency.py` | FastAPI endpoint serving country_currency.csv data |
+| `output/` | All generated CSV reports land here |
+| `mcp_server/server.py` | Alternative MCP architecture (not used in main flow) |
 
 ---
 
-## Common Flow Patterns by Query Type
+## Output Format
 
-| User Query | Tools Called (in order) |
-|---|---|
-| `What currency does Japan use?` | `get_currency_data` |
-| `What is the country code for India?` | `get_country_data` |
-| `What is the INR to USD rate?` | `get_exchange_rates` |
-| `What currency does Germany use and what is its USD rate?` | `get_currency_data` → `get_exchange_rates` |
-| `List all Euro countries with live USD rate` | `get_currency_data` → `get_exchange_rates` |
-| `Full report: all countries, currencies, and USD rates` | `get_country_data` → `get_currency_data` → `get_exchange_rates` |
+Results are saved as **CSV files** with this structure:
+
+```csv
+timestamp,question,country,currency_code,currency_name,exchange_rate,base_currency
+2026-02-22 00:38:41,India exchange rate,India,INR,Rupee,90.97,USD
+```
+
+**Filename format:** `{concise_key_terms}_{timestamp}.csv`
+
+Examples:
+- `india_exchange_rate_20260222_003841.csv`
+- `capital_france_20260222_120000.csv`
+- `currency_rates_japan_20260222_150000.csv`
+
+**Key features:**
+- Stop words removed ("what", "is", "the", etc.)
+- Maximum 25 characters (concise)
+- Only first 3-4 key terms used
+- Timestamp ensures uniqueness
 
 ---
 
-## Example Prompts to Test
+## Common Query Examples
 
-| Complexity | Prompt |
-|---|---|
-| **Simple** | `What is the currency of Japan?` |
-| **Simple** | `Give me the country code for Germany.` |
-| **Medium** | `What is the exchange rate of INR against USD?` |
-| **Medium** | `Compare the currencies of India, Japan and UK.` |
-| **Complex** | `Get all countries that use Euro, fetch live exchange rates for EUR vs USD, GBP and INR, and save the report to ./output/euro_report.json` |
-| **Complex** | `Generate a full currency and exchange rate report for all countries in my dataset using USD as base currency and save to ./output/full_report.json` |
+| User Query | Tools Called | Output |
+|---|---|---|
+| `What is the exchange rate for India?` | `get_currency_by_country` → `get_exchange_rate` | Country, currency, live rate |
+| `India exchange rate` | `get_currency_by_country` → `get_exchange_rate` | Country, currency, live rate |
+| `What currency does Japan use?` | `get_currency_by_country` | Currency name and code |
+| `EUR to USD rate` | `get_exchange_rate` | Live exchange rate for EUR |
 
 ---
 
 ## How to Run
 
+### Option 1: Basic Flow (Current Implementation)
+
 ```bash
 # Step 1 — Install dependencies
-pip install -r requirements.txt
+pip install anthropic requests python-dotenv
 
-# Step 2 — Add your OpenAI key to .env
-OPENAI_API_KEY=sk-your-key-here
+# Step 2 — Add your Claude API key to .env
+# Location: donotcheckin-personalkeyinfo/.env
+LLM_API_KEY=sk-ant-your-key-here
+LLM_MODEL=claude-sonnet-4-20250514
 
-# Step 3 — Terminal 1: Start MCP Server
+# Step 3 — (Optional) Start FastAPI endpoint for country-currency data
+# Terminal 1:
+uvicorn api.country_currency:app --reload --port 5003
+
+# Step 4 — Run the Agent
+# Terminal 2:
+python main.py
+```
+
+### Option 2: MCP Server Architecture (Alternative)
+
+```bash
+# Terminal 1: Start MCP Server
 uvicorn mcp_server.server:app --host 0.0.0.0 --port 8000 --reload
 
-# Step 4 — Terminal 2: Run the Agent
+# Terminal 2: Run agent (configured to use MCP server)
 python main.py
 ```
 
 ---
 
-## How to Convert This File to PDF
+## Key Improvements in Current Version
 
-| Tool | Steps |
-|---|---|
-| **VS Code** | Open file → Right click → Open Preview → Ctrl+P → Save as PDF |
-| **md2pdf.com** | Go to md2pdf.com → Paste content → Download PDF |
-| **Pandoc** | Run: `pandoc PROJECT_FLOW.md -o project.pdf` |
-| **Google Docs** | Paste content → File → Download → PDF |
-| **Notion** | Paste content → Export as PDF |
+✅ **CSV Output** - Structured data format instead of JSON
+✅ **Concise Filenames** - Smart stop-word removal, max 25 chars
+✅ **Live API Integration** - Real exchange rates from open.er-api.com
+✅ **Direct Tool Integration** - No separate MCP server required for basic flow
+✅ **Claude Integration** - Using Anthropic's Claude instead of OpenAI
+✅ **Tool Handler** - Clean separation between tool definition and execution
+✅ **Regex Parsing** - Extracts key data from natural language responses
 
 ---
 
-*Generated by GitHub Copilot — Currency & Country Analysis Agent Project*
+## API Dependencies
+
+| Service | Port | Purpose | Required |
+|---|---|---|---|
+| country_currency API | 5003 | Serves country-currency CSV data | Optional* |
+| Exchange Rates API | N/A | Live currency rates (public internet) | Yes |
+| MCP Server | 8000 | Alternative architecture | Optional |
+
+*CountryCurrencyTool can fall back to reading CSV directly if FastAPI is not running
+
+---
+
+## Error Handling
+
+The system handles:
+- ❌ Missing API keys → Clear error message
+- ❌ API connection failures → Graceful fallback with error message
+- ❌ Invalid country names → "Could not find..." message
+- ❌ Invalid currency codes → "Could not fetch..." message
+- ❌ Empty results → CSV saved with available data
+- ❌ Parsing failures → Default values in CSV
+
+---
+
+*Last Updated: February 22, 2026*
+*AI-Lab Project — Currency & Country Analysis Agent*

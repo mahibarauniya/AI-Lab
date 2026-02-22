@@ -20,6 +20,8 @@ import csv
 from datetime import datetime
 from dotenv import load_dotenv
 from agent.agent import load_config, create_llm_client, run_agent_conversation
+from tools.currency_rates_tool import CurrencyRatesTool
+from tools.country_currency_tool import CountryCurrencyTool
 
 
 # ============================================================================
@@ -93,12 +95,73 @@ def run_agent(user_input, llm_client, model):
     """
     print("\n🔄 Processing your request...\n")
     
-    # For now, we'll use a simple tool list
-    # In production, this would come from the MCP server
-    tools = []
+    # Initialize tool instances
+    currency_rates_tool = CurrencyRatesTool()
+    country_currency_tool = CountryCurrencyTool()
     
-    # Call the agent conversation function
-    result = run_agent_conversation(llm_client, model, tools, user_input)
+    # Define tools schema for Claude
+    tools = [
+        {
+            "name": "get_currency_by_country",
+            "description": "Get the official currency used by a specific country. Returns currency name and code.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "country": {
+                        "type": "string",
+                        "description": "The country name (e.g., 'India', 'United States', 'Japan')"
+                    }
+                },
+                "required": ["country"]
+            }
+        },
+        {
+            "name": "get_exchange_rate",
+            "description": "Get the current live exchange rate for a specific currency relative to USD from the public API.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "currency": {
+                        "type": "string",
+                        "description": "The currency code (e.g., 'EUR', 'INR', 'GBP', 'JPY')"
+                    }
+                },
+                "required": ["currency"]
+            }
+        }
+    ]
+    
+    # Define tool handler function
+    def tool_handler(tool_name, tool_input):
+        """Execute the requested tool and return results."""
+        try:
+            if tool_name == "get_currency_by_country":
+                country = tool_input.get("country", "")
+                result = country_currency_tool.get_by_country_name(country)
+                if result:
+                    return f"The currency of {country} is {result.get('currency_name', 'Unknown')} ({result.get('currency_code', 'N/A')})."
+                else:
+                    return f"Could not find currency information for '{country}'. Please check the country name."
+            
+            elif tool_name == "get_exchange_rate":
+                currency_code = tool_input.get("currency", "").upper()
+                result = currency_rates_tool.get_rate(currency_code)
+                if result and 'rate' in result:
+                    rate = result['rate']
+                    base = result.get('base', 'USD')
+                    timestamp = result.get('timestamp', 'Unknown')
+                    return f"The current exchange rate for {currency_code} (Indian Rupee) is 1 {base} = {rate} {currency_code}."
+                else:
+                    return f"Could not fetch exchange rate for '{currency_code}'. Please check the currency code."
+            
+            else:
+                return f"Unknown tool: {tool_name}"
+        
+        except Exception as e:
+            return f"Error executing {tool_name}: {str(e)}"
+    
+    # Call the agent conversation function with tools and handler
+    result = run_agent_conversation(llm_client, model, tools, user_input, tool_handler)
     
     return result
 
@@ -107,30 +170,49 @@ def run_agent(user_input, llm_client, model):
 # STEP 4: Write Result to Output File
 # ============================================================================
 
-def create_filename_from_input(user_input, max_length=50):
+def create_filename_from_input(user_input, max_length=25):
     """
-    Create a safe filename from user input.
+    Create a concise, relevant filename from user input.
+    Removes common stop words and keeps only key terms.
     
     Args:
         user_input: The user's question/prompt
         max_length: Maximum length of the filename part
         
     Returns:
-        A sanitized filename string
+        A sanitized, concise filename string
     """
-    # Remove special characters and replace spaces with underscores
-    safe_name = user_input.lower()
-    safe_name = safe_name.replace(" ", "_")
+    # Common stop words to remove
+    stop_words = {'what', 'is', 'the', 'a', 'an', 'are', 'how', 'can', 'do', 'does', 
+                  'did', 'will', 'would', 'should', 'could', 'in', 'on', 'at', 'to',
+                  'for', 'of', 'with', 'from', 'by', 'about', 'as', 'into', 'through',
+                  'was', 'were', 'been', 'be', 'have', 'has', 'had', 'this', 'that',
+                  'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they',
+                  'me', 'my', 'your', 'his', 'her', 'its', 'our', 'their', 'get',
+                  'give', 'tell', 'show', 'find', 'list', 'all', 'some', 'any'}
     
-    # Keep only alphanumeric characters, underscores, and hyphens
-    safe_name = ''.join(c for c in safe_name if c.isalnum() or c in ['_', '-'])
+    # Convert to lowercase and split into words
+    words = user_input.lower().split()
+    
+    # Filter out stop words and keep meaningful words
+    key_words = [w for w in words if w not in stop_words and len(w) > 2]
+    
+    # If no key words, fall back to first few words
+    if not key_words:
+        key_words = words[:3]
+    
+    # Join key words (limit to first 3-4 key words)
+    safe_name = '_'.join(key_words[:4])
+    
+    # Remove special characters, keep only alphanumeric and underscores
+    safe_name = ''.join(c if c.isalnum() or c == '_' else '' for c in safe_name)
     
     # Truncate to max length
     if len(safe_name) > max_length:
         safe_name = safe_name[:max_length]
     
-    # Remove trailing underscores or hyphens
-    safe_name = safe_name.rstrip('_-')
+    # Remove trailing underscores
+    safe_name = safe_name.rstrip('_')
     
     # If empty after sanitization, use a default name
     if not safe_name:
@@ -182,11 +264,13 @@ def extract_relevant_data(result, user_input):
         data['country'] = country_match.group(1)
     
     # Extract exchange rate (number with optional decimal)
+    # Patterns ordered from most specific to least specific
     rate_patterns = [
-        r'rate[:\s]+([0-9]+\.?[0-9]*)',
-        r'([0-9]+\.?[0-9]*)\s*(?:USD|per USD)',
-        r'1\s+[A-Z]{3}\s*=\s*([0-9]+\.?[0-9]*)',
-        r':\s*([0-9]+\.?[0-9]+)'
+        r'=\s*([0-9]+\.?[0-9]+)\s*INR',  # Matches "= 84.12 INR"
+        r'1\s+USD\s*=\s*([0-9]+\.?[0-9]+)',  # Matches "1 USD = 84.12"
+        r'rate[:\s]+[0-9]+\s+USD\s*=\s*([0-9]+\.?[0-9]+)',  # Matches "rate: 1 USD = 84.12"
+        r'([0-9]+\.?[0-9]+)\s+(?:INR|Rupee|Yen|EUR|GBP)',  # Matches "84.12 INR"
+        r'"rate":\s*([0-9]+\.?[0-9]+)',  # Matches JSON format "rate": 84.12
     ]
     for pattern in rate_patterns:
         rate_match = re.search(pattern, clean_text, re.IGNORECASE)

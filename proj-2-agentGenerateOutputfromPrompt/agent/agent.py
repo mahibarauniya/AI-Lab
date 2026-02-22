@@ -110,9 +110,16 @@ async def get_tools_from_mcp_server():
 # STEP 4: Run the Agent (Talk to User)
 # ============================================================================
 
-def run_agent_conversation(llm_client, model, tools, user_message):
+def run_agent_conversation(llm_client, model, tools, user_message, tool_handler=None):
     """
     Main agent loop: Send user message to LLM, handle tool calls, return answer.
+    
+    Args:
+        llm_client: The Anthropic client instance
+        model: Model name to use
+        tools: List of tool definitions
+        user_message: The user's question
+        tool_handler: Function to execute tools (optional)
     
     How it works:
     1. Send user question to Claude
@@ -133,7 +140,8 @@ def run_agent_conversation(llm_client, model, tools, user_message):
 
 1. get_currency_by_country - Find what currency a country uses
 2. get_exchange_rate - Get current exchange rate for a currency (relative to USD)
-
+please don't use any other tools or functions.
+focus on only those tools available to you.
 Use these tools to answer questions about:
 - What currency a country uses
 - Current exchange rates
@@ -184,10 +192,11 @@ Be concise, clear, and helpful in your responses."""
                     print(f"🔧 Using tool: {tool_name}")
                     print(f"   Input: {json.dumps(tool_input, indent=2)}")
                     
-                    # Call the tool via MCP server
-                    # Note: In a real implementation, you'd call the MCP server here
-                    # For now, this is a simplified version
-                    result = {"note": "Tool execution via MCP server"}
+                    # Execute the tool using the provided handler
+                    if tool_handler:
+                        result = tool_handler(tool_name, tool_input)
+                    else:
+                        result = {"note": "No tool handler provided"}
                     
                     print(f"   ✓ Done\n")
                     
@@ -195,7 +204,7 @@ Be concise, clear, and helpful in your responses."""
                     tool_results.append({
                         "type": "tool_result",
                         "tool_use_id": block.id,
-                        "content": json.dumps(result)
+                        "content": result if isinstance(result, str) else json.dumps(result)
                     })
             
             # Send tool results back to Claude
