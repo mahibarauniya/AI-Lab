@@ -1,9 +1,3 @@
 
-# ai_agent
-Overview
-
-Welcome to the code repo for AI Agents with MCP. For each chapter, you'll find several files. These are meant to correspond to each code example in the appropriate chapter. These generally build off of each other, and culminate in the final file, which is the full chapter example.......
-
-followed kylestratis
-repo: ai_agents_mcp_examples
-source: o'reilly
+# AI-Lab
+A personal AI development/personal lab for experimenting with machine learning, agent-based systems, MCP integrations, and other AI-driven projects. This repository contains code, prototypes, and experiments spanning diverse AI techniques and applications.
