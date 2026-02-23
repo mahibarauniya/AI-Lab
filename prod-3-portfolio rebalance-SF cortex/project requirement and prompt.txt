@@ -1,0 +1,12 @@
+i have one requirment where i need to build an application in hackathon end to end to assist FA/client for rebalancing their portfolio where that tool can read an still exisitng application called as portfolio analysis engine.. please treat that engine is already available for us to us. so we need to articulate that engine for our use in such a way that is readymade for us to use. now our application based on our requirment should suggest portfolio rebalancing suggestion to client or FA.
+- for all what if scenario
+- for any natural disater 
+- for any interest rate cut by fed government.
+
+
+I able okay to use snowflake cortex and data will be stored of that engine in snowflake only. now please guide me on architecture. please consider what if scenario can be anything. let's say... high concentration in tech stack ... 
+and if there is risk then we can suggest to client to dilute it to other sector by keeping portfolio performance intact.
+
+Databaes i am using is snowflake.
+
+
