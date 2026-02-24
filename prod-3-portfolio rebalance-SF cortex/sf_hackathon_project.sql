@@ -768,3 +768,227 @@ ORDER BY cnt DESC;
 SELECT *
 FROM HACKATHON.HACKATHON_SCHEMA.security_master
 ORDER BY asset_class, sector_code, ticker;
+
+
+
++++++++++++++++++++
+ALTER TABLE HACKATHON.HACKATHON_SCHEMA.security_master
+ADD COLUMN momentum_score DECIMAL(5,2)
+COMMENT 'Momentum score (-100 to +100). Positive = upward price trend,
+Negative = downward trend. Based on 3M vs 12M price performance.
+Used for portfolio rebalancing signals in Cortex AI PAE engine.';
+
+
+-- ============================================================
+-- UPDATE momentum_score for ALL 144 tickers in security_master
+-- Score range: -100.00 to +100.00
+-- Logic:
+--   > +50  = Strong upward momentum (BUY signal)
+--   +10 to +50 = Moderate positive momentum (HOLD/ADD)
+--   -10 to +10 = Neutral / sideways
+--   -10 to -50 = Moderate negative momentum (TRIM signal)
+--   < -50  = Strong downward momentum (SELL/REBALANCE signal)
+-- As of: 2026-02-24
+-- ============================================================
+
+UPDATE HACKATHON.HACKATHON_SCHEMA.security_master
+SET momentum_score = CASE ticker
+
+    -- =============================================
+    -- TECHNOLOGY (Equity) — Generally strong sector
+    -- =============================================
+    WHEN 'AAPL'  THEN  42.50   -- Steady performer, moderate uptrend
+    WHEN 'MSFT'  THEN  55.80   -- Strong cloud + AI tailwinds
+    WHEN 'NVDA'  THEN  88.50   -- AI/GPU dominance — top momentum
+    WHEN 'GOOGL' THEN  38.20   -- AI investments, steady recovery
+    WHEN 'CRM'   THEN  32.10   -- Moderate, AI CRM growth
+    WHEN 'INTC'  THEN -42.30   -- Losing market share, declining trend
+    WHEN 'AMD'   THEN  61.40   -- Strong AI chip momentum
+    WHEN 'ADBE'  THEN  18.90   -- Mixed — AI uncertainty priced in
+    WHEN 'ORCL'  THEN  52.70   -- Cloud acceleration momentum
+    WHEN 'CSCO'  THEN  12.40   -- Stable but low momentum
+    WHEN 'AVGO'  THEN  72.30   -- AI networking boom
+    WHEN 'TXN'   THEN   8.50   -- Cyclical slowdown, near neutral
+    WHEN 'QCOM'  THEN  28.60   -- Mobile/IoT recovering
+    WHEN 'NOW'   THEN  48.90   -- Strong SaaS growth momentum
+    WHEN 'INTU'  THEN  35.20   -- Tax/SMB software steady growth
+
+    -- =============================================
+    -- HEALTHCARE (Equity) — Mixed sector
+    -- =============================================
+    WHEN 'JNJ'   THEN  15.30   -- Defensive, steady but slow
+    WHEN 'PFE'   THEN -38.50   -- Post-COVID revenue drop
+    WHEN 'UNH'   THEN  22.80   -- Healthcare managed care stable
+    WHEN 'ABBV'  THEN  31.60   -- Strong pipeline momentum
+    WHEN 'TMO'   THEN  19.40   -- Life sciences recovery
+    WHEN 'LLY'   THEN  82.70   -- GLP-1/Ozempic wave — top momentum
+    WHEN 'MRK'   THEN  24.50   -- Keytruda growth solid
+    WHEN 'BMY'   THEN  -8.20   -- Patent cliff concerns
+    WHEN 'AMGN'  THEN  16.80   -- Moderate biotech momentum
+    WHEN 'GILD'  THEN  11.30   -- Slow recovery
+    WHEN 'ISRG'  THEN  58.40   -- Robotic surgery strong growth
+    WHEN 'MDT'   THEN  -5.60   -- Navigating device headwinds
+    WHEN 'SYK'   THEN  44.20   -- Strong orthopedics demand
+    WHEN 'VRTX'  THEN  62.10   -- CF/gene editing momentum
+    WHEN 'REGN'  THEN  39.80   -- Dupixent driving growth
+
+    -- =============================================
+    -- FINANCIALS (Equity) — Rate environment dependent
+    -- =============================================
+    WHEN 'JPM'   THEN  48.60   -- Strong banking, rate tailwinds
+    WHEN 'GS'    THEN  55.20   -- M&A revival driving momentum
+    WHEN 'V'     THEN  41.30   -- Payments volume growth steady
+    WHEN 'BRK.B' THEN  36.70   -- Defensive value momentum
+    WHEN 'BAC'   THEN  33.40   -- Rate sensitivity moderate
+    WHEN 'WFC'   THEN  29.80   -- Regulatory overhang easing
+    WHEN 'C'     THEN  22.10   -- Transformation underway
+    WHEN 'MS'    THEN  47.90   -- Wealth mgmt + M&A tailwinds
+    WHEN 'SCHW'  THEN  18.50   -- Rate normalization impact
+    WHEN 'AXP'   THEN  52.30   -- Premium consumer spending strong
+    WHEN 'MA'    THEN  43.80   -- Cross-border travel recovery
+    WHEN 'BLK'   THEN  38.60   -- AUM growth + ETF dominance
+    WHEN 'MMC'   THEN  30.20   -- Insurance brokerage steady
+    WHEN 'PGR'   THEN  61.50   -- Auto insurance pricing power
+
+    -- =============================================
+    -- ENERGY (Equity) — Oil price dependent
+    -- =============================================
+    WHEN 'XOM'   THEN  28.40   -- Stable oil, moderate momentum
+    WHEN 'CVX'   THEN  22.70   -- Hess deal integration focus
+    WHEN 'COP'   THEN  31.90   -- E&P efficiency gains
+    WHEN 'SLB'   THEN  14.20   -- Oilfield services recovery slow
+    WHEN 'EOG'   THEN  35.60   -- Shale efficiency leader
+    WHEN 'MPC'   THEN  42.10   -- Refining margins strong
+    WHEN 'PSX'   THEN  38.80   -- Refining + chemicals momentum
+    WHEN 'VLO'   THEN  40.50   -- Strong refining throughput
+    WHEN 'OXY'   THEN  25.30   -- Buffett holding, steady
+    WHEN 'HAL'   THEN  18.60   -- Services cycle recovery
+
+    -- =============================================
+    -- CONSUMER DISCRETIONARY (Equity) — Consumer health dependent
+    -- =============================================
+    WHEN 'AMZN'  THEN  58.30   -- AWS + retail momentum strong
+    WHEN 'TSLA'  THEN -22.40   -- Price war + demand softness
+    WHEN 'HD'    THEN  24.60   -- Housing market tied
+    WHEN 'NKE'   THEN  -9.80   -- China headwinds + inventory
+    WHEN 'SBUX'  THEN -14.20   -- Traffic slowdown concern
+    WHEN 'MCD'   THEN  18.90   -- Value menu driving traffic
+    WHEN 'LOW'   THEN  22.30   -- Housing recovery play
+    WHEN 'TJX'   THEN  45.70   -- Off-price retail thriving
+    WHEN 'BKNG'  THEN  52.40   -- Travel demand robust
+    WHEN 'MAR'   THEN  38.90   -- Hospitality recovery solid
+    WHEN 'GM'    THEN  -5.30   -- EV transition uncertainty
+
+    -- =============================================
+    -- CONSUMER STAPLES (Equity) — Defensive, low momentum
+    -- =============================================
+    WHEN 'PG'    THEN  12.40   -- Defensive, volume recovery
+    WHEN 'KO'    THEN   8.70   -- Stable pricing power
+    WHEN 'PEP'   THEN   6.20   -- Snack softness headwind
+    WHEN 'COST'  THEN  48.30   -- Membership growth strong
+    WHEN 'WMT'   THEN  42.60   -- Value consumer + ecommerce
+    WHEN 'PM'    THEN  26.80   -- Smoke-free product momentum
+    WHEN 'MO'    THEN  -4.50   -- Secular decline tobacco
+    WHEN 'CL'    THEN  10.20   -- Emerging market pricing
+    WHEN 'MDLZ'  THEN   5.80   -- Volume recovery modest
+    WHEN 'GIS'   THEN  -2.30   -- Post-COVID demand normalization
+
+    -- =============================================
+    -- COMMUNICATION SERVICES (Equity) — Mixed
+    -- =============================================
+    WHEN 'META'  THEN  74.20   -- AI ads + metaverse pivot win
+    WHEN 'DIS'   THEN -16.80   -- Streaming profitability struggle
+    WHEN 'NFLX'  THEN  65.30   -- Ad-tier + password sharing fix
+    WHEN 'T'     THEN  -8.40   -- Debt burden, slow growth
+    WHEN 'VZ'    THEN  -6.20   -- Telecom saturation
+    WHEN 'TMUS'  THEN  32.50   -- 5G subscriber growth leader
+    WHEN 'CMCSA' THEN   4.80   -- Cable cord-cutting pressure
+    WHEN 'CHTR'  THEN  -3.60   -- Broadband competition rising
+    WHEN 'EA'    THEN  10.40   -- Gaming cycle mid-momentum
+    WHEN 'WBD'   THEN -28.60   -- Restructuring + debt concerns
+
+    -- =============================================
+    -- INDUSTRIALS (Equity) — Broad strength
+    -- =============================================
+    WHEN 'CAT'   THEN  42.80   -- Infrastructure demand strong
+    WHEN 'BA'    THEN -31.40   -- Safety issues + delivery delays
+    WHEN 'UPS'   THEN  -8.90   -- Volume softness, cost pressures
+    WHEN 'HON'   THEN  28.60   -- Automation/aerospace steady
+    WHEN 'GE'    THEN  68.40   -- Aerospace spinoff momentum
+    WHEN 'RTX'   THEN  52.70   -- Defense spending tailwinds
+    WHEN 'LMT'   THEN  44.30   -- Defense budget growth
+    WHEN 'DE'    THEN  18.20   -- Ag equipment cycle moderating
+    WHEN 'MMM'   THEN  -2.80   -- Legal overhang + restructuring
+    WHEN 'FDX'   THEN  22.10   -- Cost transformation underway
+    WHEN 'WM'    THEN  32.40   -- Sustainability + pricing power
+    WHEN 'ETN'   THEN  58.90   -- Electrification megatrend
+
+    -- =============================================
+    -- UTILITIES (Equity) — AI power demand tailwind
+    -- =============================================
+    WHEN 'NEE'   THEN  34.60   -- Renewables + AI data center power
+    WHEN 'DUK'   THEN  18.30   -- Regulated utility steady
+    WHEN 'SO'    THEN  15.80   -- Nuclear + regulated momentum
+    WHEN 'AEP'   THEN  22.40   -- Grid investment tailwinds
+    WHEN 'D'     THEN   8.60   -- Restructuring stabilizing
+    WHEN 'EXC'   THEN  20.10   -- Nuclear energy revival
+    WHEN 'SRE'   THEN  24.80   -- LNG export growth
+    WHEN 'XEL'   THEN  16.50   -- Renewable transition solid
+    WHEN 'ED'    THEN  10.20   -- NYC regulated utility stable
+    WHEN 'WEC'   THEN  14.70   -- Midwest utility steady growth
+
+    -- =============================================
+    -- REAL ESTATE / REIT — Rate sensitive
+    -- =============================================
+    WHEN 'AMT'   THEN  22.30   -- Tower REIT digital infra
+    WHEN 'PLD'   THEN  28.60   -- Industrial logistics REIT strong
+    WHEN 'SPG'   THEN  18.40   -- Retail REIT stabilizing
+    WHEN 'O'     THEN  12.80   -- Monthly dividend REIT steady
+    WHEN 'EQIX'  THEN  48.20   -- Data center REIT AI tailwind
+    WHEN 'PSA'   THEN  14.60   -- Self-storage demand stable
+    WHEN 'DLR'   THEN  52.30   -- Data center AI demand boom
+    WHEN 'WELL'  THEN  38.90   -- Senior housing demand growing
+    WHEN 'AVB'   THEN  16.70   -- Apartment REIT rate pressure ease
+    WHEN 'CCI'   THEN  -8.40   -- Tower decommissioning headwind
+
+    -- =============================================
+    -- MATERIALS (Equity) — Commodity cycle dependent
+    -- =============================================
+    WHEN 'LIN'   THEN  32.40   -- Industrial gas steady demand
+    WHEN 'APD'   THEN  24.80   -- Hydrogen momentum building
+    WHEN 'FCX'   THEN  38.60   -- Copper demand AI/EV boom
+    WHEN 'SHW'   THEN  28.90   -- Housing recovery paint demand
+    WHEN 'ECL'   THEN  22.40   -- Water treatment steady
+    WHEN 'NEM'   THEN  42.10   -- Gold price momentum strong
+    WHEN 'DD'    THEN  12.30   -- Specialty chemicals recovery
+    WHEN 'NUE'   THEN  18.60   -- Steel demand infrastructure
+    WHEN 'DOW'   THEN  -4.20   -- Chemical cycle headwind
+    WHEN 'PPG'   THEN  15.80   -- Coatings demand recovering
+
+    -- =============================================
+    -- FIXED INCOME — Low momentum, inverse rate sensitivity
+    -- =============================================
+    -- Bond Funds
+    WHEN 'BND'   THEN   4.20   -- Broad market bond steady
+    WHEN 'AGG'   THEN   3.80   -- Aggregate bond index stable
+    WHEN 'BNDX'  THEN   2.60   -- International bond modest
+    WHEN 'SCHZ'  THEN   3.50   -- Aggregate bond stable
+    WHEN 'BSV'   THEN   5.10   -- Short-term bond positive rate
+    -- Treasury
+    WHEN 'TLT'   THEN  -8.60   -- Long-duration rate pressure
+    WHEN 'SHY'   THEN   6.20   -- Short-term treasury positive
+    WHEN 'IEF'   THEN  -2.40   -- Intermediate treasury neutral
+    WHEN 'GOVT'  THEN   1.80   -- Broad treasury neutral
+    -- Corporate Bond
+    WHEN 'LQD'   THEN  -3.20   -- IG corporate modest negative
+    WHEN 'VCIT'  THEN  -1.80   -- Intermediate corp neutral
+    WHEN 'VCSH'  THEN   4.60   -- Short-term corp positive
+    WHEN 'IGIB'  THEN  -2.10   -- Mid-term IG slight negative
+    -- High Yield Bond
+    WHEN 'HYG'   THEN   8.40   -- HY spreads tightening positive
+    WHEN 'JNK'   THEN   7.90   -- HY positive carry momentum
+    WHEN 'USHY'  THEN   8.10   -- Broad HY positive
+    WHEN 'SHYG'  THEN   9.20   -- Short HY positive carry
+
+    ELSE NULL  -- Safety net for any unmapped ticker
+END;
