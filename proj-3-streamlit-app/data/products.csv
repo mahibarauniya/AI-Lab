@@ -1,0 +1,16 @@
+id,name,category,price,stock,supplier,sku
+1,Wireless Headphones,Electronics,79.99,250,TechSupply Co,SKU-E001
+2,Ergonomic Office Chair,Furniture,299.99,45,OfficePro,SKU-F001
+3,Python Programming Book,Books,39.99,180,BookWorld,SKU-B001
+4,Standing Desk,Furniture,499.99,30,OfficePro,SKU-F002
+5,Bluetooth Speaker,Electronics,59.99,320,TechSupply Co,SKU-E002
+6,USB-C Hub,Electronics,34.99,500,TechSupply Co,SKU-E003
+7,Mechanical Keyboard,Electronics,129.99,150,TechSupply Co,SKU-E004
+8,Machine Learning Book,Books,49.99,120,BookWorld,SKU-B002
+9,Desk Lamp,Furniture,45.99,200,OfficePro,SKU-F003
+10,Noise Cancelling Earbuds,Electronics,149.99,90,TechSupply Co,SKU-E005
+11,Data Science Handbook,Books,44.99,95,BookWorld,SKU-B003
+12,Monitor Stand,Furniture,35.99,175,OfficePro,SKU-F004
+13,Webcam 1080p,Electronics,89.99,210,TechSupply Co,SKU-E006
+14,Whiteboard,Furniture,69.99,60,OfficePro,SKU-F005
+15,AI & Deep Learning Book,Books,54.99,80,BookWorld,SKU-B004
